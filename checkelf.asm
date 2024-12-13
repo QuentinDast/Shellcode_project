@@ -1,107 +1,74 @@
-section .bss
-    filename resb 256             ; tampon pour stocker le nom du fichier (max 256 caractères)
-    buffer resb 4                ; tampon pour lire les 4 premiers octets
-
 section .data
-    elf_magic db 0x7F, 'E', 'L', 'F'    ; signature elf
-    valid_elf_msg db "c'est un elf valide.", 10, 0
-    invalid_elf_msg db "ce n'est pas un elf valide.", 10, 0
-    usage_msg db "usage: ./program <elf_file>", 10, 0
-    debug_msg db "argument fourni: ", 0
+    fichier db "/home/cytech/Shellcode_project/hello_world", 0 ; chemin statique du fichier elf (vraiment pas super mais j'ai pas réussi pour faire mieux)
+    message_valide db "bravo, fichier elf.", 0xA, 0
+    message_invalide db "eh non c'est pas un fichier elf ou peut être une erreur d'ouverture.", 0xA, 0
+    signature_elf db 0x7F, 'E', 'L', 'F' ; signature elf attendue
+
+section .bss
+    tampon resb 4 ; tampon pour stocker les 4 premiers octets du fichier
 
 section .text
     global _start
 
 _start:
-    ; vérifie que l'argument est fourni
-    cmp rdi, 2                   ; vérifie que le nombre d'arguments est 2 (programme + fichier)
-    jne usage                    ; si ce n'est pas le cas, affiche le message d'utilisation
+    ; ouvre le fichier spécifié dans le chemin statique
+    mov rax, 2 ; syscall: open
+    lea rdi, [fichier] ; charge le chemin du fichier
+    mov rsi, 0 ; ouverture en lecture seule
+    mov rdx, 0 ; aucun mode spécifique
+    syscall
+    test rax, rax ; vérifie si l'ouverture est réussie
+    js erreur_fichier ; saute à erreur_fichier si échec
+    mov rdi, rax ; sauvegarde le descripteur de fichier
 
-    ; charge le nom du fichier donné en argument
-    mov rsi, [rsp + 16]          ; adresse du deuxième argument (nom du fichier elf)
-    lea rdi, [filename]          ; tampon pour stocker le nom
-    xor rcx, rcx                 ; réinitialise rcx pour boucle
-copy_filename:
-    lodsb                        ; charge le prochain octet (byte) depuis rsi
-    stosb                        ; stocke cet octet dans rdi
-    test al, al                  ; vérifie si l'octet est nul (fin de la chaîne)
-    jnz copy_filename            ; continue jusqu'à la fin de la chaîne
+    ; lit les 4 premiers octets du fichier
+    mov rax, 0 ; syscall: read
+    mov rsi, tampon ; charge l'adresse du tampon
+    mov rdx, 4 ; lit 4 octets
+    syscall
+    test rax, rax ; vérifie si la lecture est réussie
+    js erreur_fichier ; saute à erreur_fichier si échec
 
-    ; affiche le nom du fichier pour débogage
-    lea rsi, [debug_msg]         ; message de débogage
-    mov rax, 1                   ; syscall: write
-    mov rdi, 1                   ; stdout
-    mov rdx, 17                  ; taille du message
+    ; compare les octets lus avec la signature elf attendue
+    lea rsi, [signature_elf] ; charge la signature elf
+    lea rdi, [tampon] ; charge le tampon contenant les octets lus
+    mov rcx, 4 ; initialise le compteur pour comparer 4 octets
+boucle_comparaison:
+    mov al, byte [rsi] ; charge un octet de la signature
+    cmp al, byte [rdi] ; compare avec l'octet correspondant du tampon
+    jne non_elf ; saute à non_elf si différence
+    inc rsi ; passe à l'octet suivant dans la signature
+    inc rdi ; passe à l'octet suivant dans le tampon
+    loop boucle_comparaison ; répète jusqu'à ce que rcx atteigne 0
+
+    ; affiche un message confirmant que le fichier est un elf valide
+    lea rsi, [message_valide]
+    mov rax, 1 ; syscall: write
+    mov rdi, 1 ; stdout
+    mov rdx, 20 ; taille du message
+    syscall
+    jmp fin_programme 
+
+non_elf:
+    ; affiche un message si le fichier n'est pas un elf
+    lea rsi, [message_invalide] 
+    mov rax, 1 
+    mov rdi, 1 
+    mov rdx, 69
+    syscall
+    jmp fin_programme 
+
+erreur_fichier:
+    ; affiche un message en cas d'erreur d'ouverture ou de lecture
+    lea rsi, [message_invalide] 
+    mov rax, 1 
+    mov rdi, 1 
+    mov rdx, 69 
     syscall
 
-    lea rsi, [filename]          ; affiche le fichier passé en argument
-    mov rax, 1                   ; syscall: write
-    mov rdi, 1                   ; stdout
-    mov rdx, 256                 ; taille maximale supposée
-    syscall
-
-    ; ouvrir le fichier
-    mov rax, 2                   ; syscall: open
-    lea rdi, [filename]          ; nom du fichier
-    mov rsi, 0                   ; o_rdonly
-    mov rdx, 0                   ; aucun mode (permission non spécifiée)
-    syscall
-    test rax, rax                ; vérifie si l'ouverture a réussi
-    js invalid_file              ; si erreur, affiche un message et sort
-    mov rdi, rax                 ; stocke le descripteur de fichier
-
-    ; lire les 4 premiers octets
-    mov rax, 0                   ; syscall: read
-    mov rsi, buffer              ; adresse du tampon
-    mov rdx, 4                   ; taille de lecture
-    syscall
-    test rax, rax                ; vérifie si la lecture a réussi
-    js invalid_file              ; si erreur, affiche un message et sort
-
-    ; comparer avec le magic number elf
-    lea rsi, [elf_magic]         ; charge la signature elf
-    lea rdi, [buffer]            ; charge le tampon lu
-    mov rcx, 4                   ; nombre d'octets à comparer
-    repe cmpsb                   ; compare les octets
-    jne not_elf                  ; si différent, affiche un message et sort
-
-    ; message de confirmation si elf valide
-    lea rsi, [valid_elf_msg]
-    mov rax, 1                   ; syscall: write
-    mov rdi, 1                   ; stdout
-    mov rdx, 20                  ; taille du message
-    syscall
-    jmp exit_program
-
-not_elf:
-    ; affiche un message si ce n'est pas un elf
-    lea rsi, [invalid_elf_msg]
-    mov rax, 1                   ; syscall: write
-    mov rdi, 1                   ; stdout
-    mov rdx, 22                  ; taille du message
-    syscall
-    jmp exit_program
-
-invalid_file:
-    ; afficher un message en cas d'erreur d'ouverture
-    lea rsi, [invalid_elf_msg]
-    mov rax, 1                   ; syscall: write
-    mov rdi, 1                   ; stdout
-    mov rdx, 22                  ; taille du message
-    syscall
-
-usage:
-    ; affiche le message d'utilisation
-    lea rsi, [usage_msg]
-    mov rax, 1                   ; syscall: write
-    mov rdi, 1                   ; stdout
-    mov rdx, 28                  ; taille du message
-    syscall
-    jmp exit_program
-
-exit_program:
-    ; sortir proprement
-    mov rax, 60                  ; syscall: exit
-    xor rdi, rdi                 ; code de retour 0
+fin_programme:
+    ; quitte le programme
+    mov rax, 60 ; syscall: exit
+    xor rdi, rdi ; code de retour 0
     syscall
 
