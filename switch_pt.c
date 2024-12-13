@@ -36,7 +36,7 @@ typedef struct {
     uint64_t p_align;
 } Elf64_Phdr;
 
-void modify_specific_pt_note_to_pt_load(const char *filename) {
+void modify_dynamic_pt_note_to_pt_load(const char *filename) {
     // ouvre le fichier elf en mode lecture/écriture binaire
     FILE *file = fopen(filename, "r+b");
     if (!file) {
@@ -55,36 +55,35 @@ void modify_specific_pt_note_to_pt_load(const char *filename) {
         exit(EXIT_FAILURE);
     }
 
-    // offset exact du segment pt_note (0x358)
-    uint64_t target_offset = 0x358; 
+    // parcours dynamique des headers de programme
+    fseek(file, elf_header.e_phoff, SEEK_SET);
+    for (int i = 0; i < elf_header.e_phnum; i++) {
+        Elf64_Phdr phdr;
+        fread(&phdr, sizeof(Elf64_Phdr), 1, file);
 
-    // se déplace à l'offset du pt_note 
-    fseek(file, target_offset, SEEK_SET);
+        // vérifie si le segment est de type pt_note
+        if (phdr.p_type == PT_NOTE) {
+            printf("pt_note trouvé au segment %d\n", i);
 
-    Elf64_Phdr phdr;
-    fread(&phdr, sizeof(Elf64_Phdr), 1, file);
+            // modifie le type du segment en pt_load
+            phdr.p_type = PT_LOAD;
+            // modifie les permissions pour lecture, écriture et exécution
+            phdr.p_flags = 7;
 
-    // vérifie si le segment est de type pt_note
-    if (phdr.p_type == PT_NOTE) {
-        printf("pt_note trouvé à l'offset 0x%lx\n", target_offset);
+            // met à jour les tailles 
+            uint64_t payload_size = 64; // taille de la charge utile
+            phdr.p_filesz = payload_size;
+            phdr.p_memsz = payload_size;
 
-        // modifie le type du segment en pt_load
-        phdr.p_type = PT_LOAD;
-        // modifie les permissions pour lecture, écriture et exécution
-        phdr.p_flags = 7;
+            // revient à la position de l'entrée pour écrire les modifications
+            fseek(file, -(long)sizeof(Elf64_Phdr), SEEK_CUR);
+            fwrite(&phdr, sizeof(Elf64_Phdr), 1, file);
 
-        // met à jour les tailles 
-        uint64_t payload_size = 64; // taille de la charge utile
-        phdr.p_filesz = payload_size;
-        phdr.p_memsz = payload_size;
+            printf("pt_note modifié en pt_load avec permissions rwe\n");
 
-        // revient à la position de l'entrée pour écrire les modifications
-        fseek(file, target_offset, SEEK_SET);
-        fwrite(&phdr, sizeof(Elf64_Phdr), 1, file);
-
-        printf("pt_note modifié en pt_load avec permissions RWE\n");
-    } else {
-        printf("le segment à l'offset 0x%lx n'est pas de type pt_note\n", target_offset);
+            // arrête après la première modification
+            break;
+        }
     }
 
     fclose(file); 
@@ -98,7 +97,7 @@ int main(int argc, char *argv[]) {
     }
 
     // appele fonction
-    modify_specific_pt_note_to_pt_load(argv[1]);
+    modify_dynamic_pt_note_to_pt_load(argv[1]);
 
     printf("modification terminée\n");
     return EXIT_SUCCESS;
