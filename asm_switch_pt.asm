@@ -1,5 +1,5 @@
 section .data
-    chemin_fichier db '/home/cytech/Shellcode_project/hello_world2', 0 ; chemin absolue car je n'ai pas réussi à faire marcher en dynamique avec un elf en argument, pas optimal mais fonctionel
+    chemin_fichier db '/home/cytech/Shellcode_project/hello_world', 0 ; chemin absolue car je n'ai pas réussi à faire marcher en dynamique avec un elf en argument, pas optimal mais fonctionel
     position_pt_note equ 456 ; offset où est situé le premier pt_note du elf (j'en parle plus en détails dans le rapport pour comprendre comment j'ai eu cette valeur)
     position_flags equ 460 ; postion des p_flags du pt_note
     position_entree equ 24 ; l'adresse d'entrée du programme dans le fichier elf
