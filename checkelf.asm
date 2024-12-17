@@ -1,74 +1,82 @@
 section .data
-    fichier db "/home/cytech/Shellcode_project/hello_world", 0 ; chemin statique du fichier elf (vraiment pas super mais j'ai pas réussi pour faire mieux)
-    message_valide db "bravo, fichier elf.", 0xA, 0
-    message_invalide db "eh non c'est pas un fichier elf ou peut être une erreur d'ouverture.", 0xA, 0
-    signature_elf db 0x7F, 'E', 'L', 'F' ; signature elf attendue
+    chemin_fichier db "/home/cytech/Shellcode_project/hello_world", 0 ; chemin statique du fichier elf (vraiment pas super mais j'ai pas réussi pour faire mieux)
+    msg_valide db "bravo, fichier elf.", 0xA, 0 
+    msg_invalide db "eh non c'est pas un fichier elf ou peut être une erreur d'ouverture.", 0xA, 0 
+    signature_attendue db 0x7F, 'E', 'L', 'F' ; signature elf attendue
 
 section .bss
-    tampon resb 4 ; tampon pour stocker les 4 premiers octets du fichier
+    buffer resb 4 ; buffer pour lire les 4 premiers octets du fichier
 
 section .text
-    global _start
+global _start
 
 _start:
-    ; ouvre le fichier spécifié dans le chemin statique
-    mov rax, 2 ; syscall: open
-    lea rdi, [fichier] ; charge le chemin du fichier
-    mov rsi, 0 ; ouverture en lecture seule
-    mov rdx, 0 ; aucun mode spécifique
-    syscall
-    test rax, rax ; vérifie si l'ouverture est réussie
-    js erreur_fichier ; saute à erreur_fichier si échec
+    call ouvre_fichier 
+    test rax, rax
+    js erreur 
     mov rdi, rax ; sauvegarde le descripteur de fichier
 
-    ; lit les 4 premiers octets du fichier
-    mov rax, 0 ; syscall: read
-    mov rsi, tampon ; charge l'adresse du tampon
+    call verif_signature ; appelle de la fonction qui vérifie la signature elf
+    test rax, rax
+    js message_invalide 
+
+    call message_valide 
+    jmp fin_programme
+
+ouvre_fichier:
+    mov rax, 2 ; open
+    lea rdi, [chemin_fichier] 
+    mov rsi, 0 ; lecture seule
+    xor rdx, rdx 
+    syscall
+    ret
+
+verif_signature:
+    mov rax, 0 ; read
+    mov rsi, buffer ; buffer pour lire les octets
     mov rdx, 4 ; lit 4 octets
     syscall
-    test rax, rax ; vérifie si la lecture est réussie
-    js erreur_fichier ; saute à erreur_fichier si échec
+    test rax, rax
+    js signature_invalide ; échec
 
-    ; compare les octets lus avec la signature elf attendue
-    lea rsi, [signature_elf] ; charge la signature elf
-    lea rdi, [tampon] ; charge le tampon contenant les octets lus
-    mov rcx, 4 ; initialise le compteur pour comparer 4 octets
-boucle_comparaison:
-    mov al, byte [rsi] ; charge un octet de la signature
-    cmp al, byte [rdi] ; compare avec l'octet correspondant du tampon
-    jne non_elf ; saute à non_elf si différence
-    inc rsi ; passe à l'octet suivant dans la signature
-    inc rdi ; passe à l'octet suivant dans le tampon
-    loop boucle_comparaison ; répète jusqu'à ce que rcx atteigne 0
+    lea rsi, [signature_attendue] 
+    lea rdi, [buffer] ; buffer qui contient les octets 
+    mov rcx, 4 ; compare 4 octets
+    repe cmpsb ; comparaison automatique des chaînes
+    jne signature_invalide ; si différent, signature invalide
+    xor rax, rax ; succès
+    ret
 
-    ; affiche un message confirmant que le fichier est un elf valide
-    lea rsi, [message_valide]
+signature_invalide:
+    mov rax, -1 ; code d'erreur
+    ret
+
+message_valide:
+    lea rsi, [msg_valide] 
     mov rax, 1 ; syscall: write
     mov rdi, 1 ; stdout
     mov rdx, 20 ; taille du message
     syscall
-    jmp fin_programme 
+    ret
 
-non_elf:
-    ; affiche un message si le fichier n'est pas un elf
-    lea rsi, [message_invalide] 
-    mov rax, 1 
-    mov rdi, 1 
-    mov rdx, 69
-    syscall
-    jmp fin_programme 
-
-erreur_fichier:
-    ; affiche un message en cas d'erreur d'ouverture ou de lecture
-    lea rsi, [message_invalide] 
+message_invalide:
+    lea rsi, [msg_invalide] 
     mov rax, 1 
     mov rdi, 1 
     mov rdx, 69 
     syscall
+    ret
+
+erreur:
+    lea rsi, [msg_invalide] 
+    mov rax, 1 
+    mov rdi, 1 
+    mov rdx, 69 
+    syscall
+    jmp fin_programme
 
 fin_programme:
-    ; quitte le programme
     mov rax, 60 ; syscall: exit
-    xor rdi, rdi ; code de retour 0
+    xor rdi, rdi
     syscall
 
